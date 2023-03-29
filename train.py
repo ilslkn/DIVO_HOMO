@@ -14,16 +14,28 @@ from utils import *
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import logging
-import sys
-import datetime
-from config import *
+import configparser
 
-def Train():
+config = configparser.ConfigParser()
+config.read('conf.ini',encoding='utf-8')
+train_dataset_path = config.get('PATH','train_dataset_path')
+test_dataset_path = config.get('PATH','test_dataset_path')
+result_path = config.get('PATH', 'result_path')
+BATCH = config.getint('PARA', 'Batch Size')
+start_learning_rate = config.getfloat('PARA','Learning Rate')
+max_n_pts = config.getint('PARA','Max Points')
+EPOCH = config.getint('PARA', 'EPOCH')
+resume = config.get('SWITCH','RESUME')
+DX_USE = config.get('SWITCH', 'DX_USE')
+ckpt_path = os.path.join(result_path, 'ckpt_model.pth')
+def train():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     total_train_step = 0
     START_EPOCH = 0
     min_test_loss = 10
+
+
     
     train_dataset = TrainDataset(train_dataset_path)
     test_dataset = TrainDataset(test_dataset_path)
@@ -46,10 +58,11 @@ def Train():
     logging.Formatter.converter = beijing
     
     logger_init()
-    
-    if resume:
+
+    if resume == 'y':
         if os.path.isfile(ckpt_path):
             logging.info("Resume from checkpoint...")
+            print(ckpt_path)
             checkpoint = torch.load(ckpt_path)
             model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -59,7 +72,7 @@ def Train():
         else:
             logging.info("=====> no checkpoint found")
     
-    if(DX_USE):
+    if DX_USE == 'y' :
         logging.info("///////dx is now used in loss function/////")
     else:
         logging.info("///////dx is now not used in loss function/////")
@@ -87,7 +100,7 @@ def Train():
     
             total_train_step = total_train_step + 1
             writer.add_scalar('train_loss', loss.item(),total_train_step)
-            if total_train_step % 5 == 0:
+            if total_train_step % 50 == 0:
                 logging.info("step: {}, Train Loss: {}".format(total_train_step, loss.item()))
     
     
@@ -122,4 +135,47 @@ def Train():
                 logging.info("ckpt_model in epoch {} has been saved".format(epoch))
             logging.info("Test Loss: {}".format(total_test_loss))    
             writer.add_scalar('test_loss', total_test_loss,epoch+1)
-          
+
+    checkpoint = {"model_state_dict": model.state_dict(),
+                  "optimizer_state_dict": optimizer.state_dict(),
+                  "epoch": epoch,
+                  "train_step": total_train_step}
+    if DX_USE == 'y':
+        torch.save(checkpoint, result_path + '/ckpt_model_dx.pth')
+    else:
+        torch.save(checkpoint, result_path + '/ckpt_model_.pth')
+
+def test_opencv():
+    logger_init()
+    logging.info("------------ Testing the performance of OpenCV ------------")
+    train_dataset = TrainDataset(train_dataset_path)
+    train_dataloader = DataLoader(train_dataset, batch_size=BATCH, shuffle=True)
+    step = 0
+    for datas in train_dataloader:
+        step+=1
+        src_pts = datas['src_pts']
+        dst_pts = datas['dst_pts']
+        batch = src_pts.shape[0]
+        H_cv2 = torch.zeros((batch,3,3))
+        for i in range(batch):
+            s = src_pts[i].numpy()
+            d = dst_pts[i].numpy()
+            H, mask = cv2.findHomography(s,d,cv2.RANSAC,5.0)
+            H_cv2[i] = torch.tensor(H)
+
+        ones_2 = torch.ones((batch, 1, max_n_pts))
+        src_ = torch.cat((src_pts.transpose(1, 2), ones_2), dim=1)
+        temp = torch.bmm(H_cv2, src_)
+        p = temp[:, 2]
+        p1 = torch.stack((p, p, p)).transpose(0, 1)
+        pred_pts = (temp / p1)[:, :2].transpose(1, 2)
+        w = torch.exp(-((pred_pts[:, :, 0] - dst_pts[:, :, 0]) ** 2 + (pred_pts[:, :, 1] - dst_pts[:, :, 1]) ** 2)).detach()
+        w = w / torch.sum(w)  # 后百分之十=0
+        des_sorted, index = torch.sort(w, dim=1)
+        for b in range(batch):
+            for i in range(int(0.1 * max_n_pts)):
+                w[b][index[b][i]] = 0
+        w2 = torch.stack((w, w), dim=2).detach()
+        loss = torch.nn.functional.mse_loss(w2 * pred_pts, w2 * dst_pts)
+        if step%50==0 :
+            logging.info("step: {}, openCV loss: {}".format(step, loss.item()))

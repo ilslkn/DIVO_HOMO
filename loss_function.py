@@ -11,7 +11,12 @@ import cv2
 import torch.nn as nn
 import torch.nn.functional as f
 import numpy as np
-from config import *
+import configparser
+
+config = configparser.ConfigParser()
+config.read('conf.ini',encoding='utf-8')
+DX_USE = config.get('SWITCH', 'DX_USE')
+max_n_pts = config.getint('PARA','Max Points')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class MyMSELoss(nn.Module):

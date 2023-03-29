@@ -14,7 +14,7 @@ import torchvision
 from torch import nn
 from model import *
 from utils import *
-from config import *
+
 import pandas
 
 class TrainDataset(Dataset):

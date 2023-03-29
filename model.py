@@ -38,7 +38,7 @@ class TrainModel(torch.nn.Module):
 #        self.linear = torch.nn.Linear(50, 8)
         self.linear1 = torch.nn.Linear(4,dim)
         #self.F = torch.nn.Flatten()
-        self.pooling_H = torch.nn.AvgPool2d((100,1),stride=1)
+        self.pooling_H = torch.nn.AvgPool2d((size,1),stride=1)
         self.linear_H = torch.nn.Linear(dim, 8)
         self.linear_dX = torch.nn.Linear(dim,2)
 

@@ -14,7 +14,12 @@ import os
 import datetime
 import logging
 import sys
-from config import *
+import configparser
+
+config = configparser.ConfigParser()
+config.read('conf.ini',encoding='utf-8')
+result_path = config.get('PATH', 'result_path')
+max_n_pts = config.getint('PARA','Max Points')
 
 
 
@@ -48,7 +53,7 @@ def DIVO_get_points(path1,path2):
             src[x, y] = src_data[y][x]
             dst[x, y] = dst_data[y][x]
             
-    retval = {"src_pts": src, "dst_pts": dst}
+    retval = {"src_pts": torch.tensor(src).float(), "dst_pts": torch.tensor(dst).float()}
     return retval
 
 def beijing(sec, what):
